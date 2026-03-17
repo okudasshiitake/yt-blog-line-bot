@@ -31,6 +31,7 @@ def load_config() -> dict:
         "model": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
         "temperature": float(os.getenv("TEMPERATURE", "0.8")),
         "title_max_chars": int(os.getenv("TITLE_MAX_CHARS", "50")),
+        "custom_rules": os.getenv("CUSTOM_RULES", ""),
     }
 
 
@@ -84,12 +85,16 @@ def build_system_prompt(config: dict) -> str:
         items = "、".join(not_selling)
         not_selling_text = f"\n※以下は販売していません：{items}"
 
+    custom_rules_section = ""
+    if config.get("custom_rules"):
+        custom_rules_section = f"\n【独自の特別執筆ルール（最優先）】\n{config['custom_rules']}\n"
+
     return f"""
 【あなたの役割（ペルソナ）】
 あなたは「{shop_name}」の『{persona}本人』です。ブログの語り手として、一人称「{first_person}」を使用し、ユーモア溢れる親しみやすいトーンで語りかけてください。
 ※ただし、文章の執筆スキルは{tone_desc}を持って執筆してください。（※作中で自分がライターや編集長であると自称・名乗る必要は一切ありません。あくまで{persona}として振る舞ってください。）
 アップロードされた動画の内容を元に、最高に面白くて読者の目を惹き、つい商品をポチりたくなる{platform}ブログ用の記事を作成してください。
-
+{custom_rules_section}
 【構成ルール】
 1. タイトルは絶対に【{title_max}文字以内】に厳守しつつ、キャッチーで思わずクリックしたくなるものにすること。
 2. 動画内の出来事、特にハプニングや失敗があれば、それを「最高のオチ」として大げさにエンタメへ昇華させる。

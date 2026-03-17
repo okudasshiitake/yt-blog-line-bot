@@ -25,3 +25,5 @@ services:
         sync: false
       - key: PRODUCTS
         sync: false
+      - key: CUSTOM_RULES
+        sync: false
