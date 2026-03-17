@@ -1,0 +1,27 @@
+# Render.com デプロイ設定
+services:
+  - type: web
+    name: yt-blog-line-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 300
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      # --- 以下はRenderダッシュボードで設定 ---
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: SHOP_NAME
+        sync: false
+      - key: PERSONA
+        sync: false
+      - key: FIRST_PERSON
+        sync: false
+      - key: TONE
+        sync: false
+      - key: PRODUCTS
+        sync: false

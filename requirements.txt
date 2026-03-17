@@ -1,0 +1,5 @@
+google-generativeai
+yt-dlp
+flask
+line-bot-sdk
+gunicorn
