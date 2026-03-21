@@ -21,6 +21,8 @@ from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from linebot.v3.exceptions import InvalidSignatureError
 from blog_engine import load_config, init_api, download_video, generate_article, postprocess_body
 
+USER_SETTINGS_FILE = "user_settings.json"
+
 # ---------- 初期化 ----------
 app = Flask(__name__)
 
@@ -35,6 +37,41 @@ init_api()
 
 # 同時処理を防ぐロック（1件ずつ処理）
 _processing_lock = threading.Lock()
+
+
+# ---------- ユーザー設定（モード切替）の管理 ----------
+def load_user_settings(user_id: str) -> str:
+    """ユーザーのカスタム指示を読み込む"""
+    if os.path.exists(USER_SETTINGS_FILE):
+        try:
+            with open(USER_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get(user_id, "")
+        except Exception:
+            return ""
+    return ""
+
+def save_user_settings(user_id: str, text: str):
+    """ユーザーのカスタム指示を保存・削除する"""
+    data = {}
+    if os.path.exists(USER_SETTINGS_FILE):
+        try:
+            with open(USER_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            pass
+
+    if text:
+        data[user_id] = text
+    else:
+        if user_id in data:
+            del data[user_id]
+
+    try:
+        with open(USER_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 # ---------- ユーティリティ ----------
@@ -95,25 +132,41 @@ def process_video(user_id: str, url: str):
 
             # --- 2. AI 記事生成 ---
             push_text(api, user_id, "🤖 AIが記事を執筆中... (1〜2分かかります)")
-            article = generate_article(temp_video, config)
+            user_instruction = load_user_settings(user_id)
+            article = generate_article(temp_video, config, user_instruction)
 
-            title = article.get("title", "無題の記事")
+            titles = article.get("titles", ["無題の記事"])
+            if isinstance(titles, str):
+                titles = [titles]
             body = article.get("body", "")
+            hashtags = article.get("hashtags", [])
 
             # --- 3. 後処理 ---
             body = postprocess_body(body, url, config)
 
             # --- 4. 結果送信 ---
+            title_text = "\n\n".join([f"案{i+1}: {t}" for i, t in enumerate(titles)])
+            hashtag_text = " ".join(hashtags) if hashtags else ""
+
             header = (
                 f"✨ 記事が完成しました！\n\n"
-                f"📝 タイトル:\n{title}\n\n"
+                f"📝 【選べるタイトル3案】\n{title_text}\n\n"
                 f"{'─' * 20}\n\n"
             )
+            
+            # 本文の送信
             push_text(api, user_id, header + body)
+
+            # ハッシュタグの送信
+            if hashtag_text:
+                push_text(
+                    api, user_id,
+                    f"🏷️ 【おすすめSNSハッシュタグ】\n動画の告知やSNS投稿に使ってね！\n\n{hashtag_text}"
+                )
 
             push_text(
                 api, user_id,
-                "💡 上の記事をコピーしてBASEブログに貼り付けてください！",
+                "💡 上の中から好きなタイトルを選んで、ブログに貼り付けてください！",
             )
 
     except Exception as e:
@@ -174,26 +227,38 @@ def handle_message(event):
             )
             t = threading.Thread(target=process_video, args=(user_id, text), daemon=True)
             t.start()
-        else:
-            shop = config.get("shop_name", "")
+        elif text == "リセット":
+            save_user_settings(user_id, "")
             api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
                     messages=[
                         TextMessage(
                             text=(
-                                f"📎 {shop} ブログ自動生成Bot\n\n"
-                                "YouTubeの動画URLを送ってください！\n\n"
-                                "対応フォーマット:\n"
-                                "・https://youtube.com/watch?v=...\n"
-                                "・https://youtube.com/shorts/...\n"
-                                "・https://youtu.be/..."
+                                "🔄 カスタム設定をリセットしました！\n"
+                                "次回からは初期設定（Renderの設定）で記事を作成します。"
                             )
                         )
                     ],
                 )
             )
-
+        else:
+            save_user_settings(user_id, text)
+            api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[
+                        TextMessage(
+                            text=(
+                                "🤖 カスタム指示（モード）を設定しました！\n\n"
+                                f"「{text[:50]}...」\n\n"
+                                "次回からの動画は、この指示を最優先して記事を作成します✍️\n\n"
+                                "（☝️元に戻すときは「リセット」と送ってください）"
+                            )
+                        )
+                    ],
+                )
+            )
 
 # ---------- 起動 ----------
 if __name__ == "__main__":

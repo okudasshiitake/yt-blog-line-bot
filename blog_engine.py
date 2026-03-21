@@ -61,7 +61,7 @@ def download_video(url: str) -> str:
 
 
 # ========== AI記事生成 ==========
-def build_system_prompt(config: dict) -> str:
+def build_system_prompt(config: dict, user_instruction: str = "") -> str:
     """設定からAIへのシステムプロンプトを組み立てる"""
     shop_name = config["shop_name"]
     persona = config["persona"]
@@ -87,16 +87,56 @@ def build_system_prompt(config: dict) -> str:
 
     custom_rules_section = ""
     if config.get("custom_rules"):
-        custom_rules_section = f"\n【独自の特別執筆ルール（最優先）】\n{config['custom_rules']}\n"
+        custom_rules_section = f"\n【デフォルトの特別執筆ルール】\n{config['custom_rules']}\n"
 
-    return f"""
+    user_instruction_section = ""
+    if user_instruction:
+        user_instruction_section = f"\n【★★★ 最優先・LINEからの上書き指示 ★★★】\n以下のユーザーからの指示を最も優先して適用してください（店名・文体・除外ルールの変更や別のモードの指定があればこれに従うこと）：\n{user_instruction}\n"
+
+    # --- 共通ヘッダー ---
+    header = f"""
 【あなたの役割（ペルソナ）】
 あなたは「{shop_name}」の『{persona}本人』です。ブログの語り手として、一人称「{first_person}」を使用し、ユーモア溢れる親しみやすいトーンで語りかけてください。
 ※ただし、文章の執筆スキルは{tone_desc}を持って執筆してください。（※作中で自分がライターや編集長であると自称・名乗る必要は一切ありません。あくまで{persona}として振る舞ってください。）
-アップロードされた動画の内容を元に、最高に面白くて読者の目を惹き、つい商品をポチりたくなる{platform}ブログ用の記事を作成してください。
-{custom_rules_section}
+アップロードされた動画の内容を元に、最高に面白くて読者の目を惹く{platform}用の記事を作成してください。
+{custom_rules_section}{user_instruction_section}"""
+
+    # --- プラットフォーム別の構成ルール ---
+    if platform.lower() == "note":
+        rules = f"""
+【構成ルール（note特化版）】
+1. タイトルは絶対に【{title_max}文字以内】に厳守しつつ、全くテイストの違う3パターンのタイトル案（①クリック重視の煽り系、②Google検索SEO重視、③SNS向けのおもしろ系）を提案してください。
+2. ★冒頭のつかみ（超重要）★ noteではタイムラインや検索結果で最初の数行のみ表示される。記事の冒頭1〜2文で「え、なにそれ？」「続きが気になる！」と思わせる強烈なフックを必ず入れること。
+3. ★リッチテキスト★ noteはMarkdownに近いリッチテキストに対応しています。以下を積極的に使って、noteの画面上で映える「読みたくなるデザイン」に仕上げてください：
+   - 見出し: 「## 見出し」（##を使用。#は記事タイトル用なので本文では##以降を使う）
+   - 太字: 「**強調したい言葉**」
+   - 引用: 「> 引用文」（印象的なセリフや名言を引用ブロックで目立たせる）
+   - 箇条書き: 「- 項目」
+   - 区切り線: 「---」（話題の転換に使用）
+4. ★YouTube動画の埋め込み★ noteではYouTubeのURLを本文中に単独行で記載すると、自動的に動画プレーヤーが埋め込み表示される。記事の適切な位置（冒頭の導入後など）に、YouTube URLだけの行を1つ入れること。URLは「{{YOUTUBE_URL}}」というプレースホルダーで記載すること。
+5. 動画内の出来事、特にハプニングや失敗があれば、それを「最高のオチ」として大げさにエンタメへ昇華させる。
+6. 段落ごと・話題の転換ごとに空行を入れ、読みやすさを最優先にすること。
+7. ★商品紹介（控えめに）★ 記事の終盤に{shop_name}の商品について触れてもよいが、noteの読者はあからさまな宣伝を嫌う。「ちなみに、こんなのもやってます」程度の自然さで、さらっと一言だけ触れる形にすること。直接的な「買ってください」は禁止。
+【参考：販売している商品一覧】
+{products_text}{not_selling_text}
+8. ★まとめセクション（必須）★ 記事の最後に「## 📝 まとめ」という見出しを入れ、この記事の要点を箇条書き3〜5行で簡潔にまとめること。noteの読者は「学び・気づき」を求めている。
+9. ★フォロー・スキの促進★ まとめの後に、「この記事が面白かったら『スキ♡』とフォローをお願いします！」「YouTubeチャンネルも見てね！」のような行動を促す一言を{persona}らしい口調で入れること。
+10. ★禁止事項★ 記事本文中に宣伝をしていることへのメタ発言・心の声・楽屋ネタは一切入れないこと。
+11. 記事内容に関連するSNS用のハッシュタグ（#付き）を5〜10個生成してください。
+
+【出力形式】
+必ず以下のJSONフォーマット（Markdownコードブロックなしの生のJSON文字列のみ）で出力し、他の文字は含めないこと。
+{{
+    "titles": ["タイトル案1(クリック重視)", "タイトル案2(SEO重視)", "タイトル案3(おもしろ系)"],
+    "body": "Markdown記法（##見出し・**太字**・>引用・-箇条書き）を使ったリッチな記事本文",
+    "hashtags": ["#ハッシュタグ1", "#ハッシュタグ2", "#ハッシュタグ3", "#ハッシュタグ4", "#ハッシュタグ5"]
+}}
+"""
+    else:
+        # --- BASE / その他のプラットフォーム ---
+        rules = f"""
 【構成ルール】
-1. タイトルは絶対に【{title_max}文字以内】に厳守しつつ、キャッチーで思わずクリックしたくなるものにすること。
+1. タイトルは絶対に【{title_max}文字以内】に厳守しつつ、全くテイストの違う3パターンのタイトル案（①クリック重視の煽り系、②検索SEO重視、③SNS向けのおもしろ系）を提案してください。
 2. 動画内の出来事、特にハプニングや失敗があれば、それを「最高のオチ」として大げさにエンタメへ昇華させる。
 3. ★改行ルール（超重要）★ 文章がぎゅうぎゅう詰めにならないよう、段落ごと・話題の転換ごとに【必ず2〜3行の空行】を入れること。1文ごとに改行しても構わないくらい、たっぷりスペースを使って読みやすくすること。絵文字や「【】」「◆」などの全角記号を使って見やすく装飾する。（※{platform}にそのままコピペするため、アスタリスク「**」やシャープ「#」などのMarkdown記法は一切使わないこと。プレーンテキストで出力する。）
 4. 画像挿入指示は不要です。テキストのみで出力してください。
@@ -105,17 +145,20 @@ def build_system_prompt(config: dict) -> str:
 {products_text}{not_selling_text}
 6. ★重要★ アクションの促進： 最下部で、次回の動画やブログ実験の期待を煽り、YouTubeやBASEアプリのショップフォローを促す一言を入れてください。
 7. ★禁止事項★ 記事本文中に「（宣伝も忘れない）」「（ここで宣伝です）」「（さりげなく宣伝）」のような、宣伝をしていることへのメタ発言・心の声・楽屋ネタは一切入れないこと。宣伝はあくまで自然に、読者に語りかける形でさらっと行う。
+8. 記事内容や商品に関連するInstagramやTikTokで使えるおすすめのハッシュタグ（#付き）を5〜10個生成してください。
 
 【出力形式】
 必ず以下のJSONフォーマット（Markdownコードブロックなしの生のJSON文字列のみ）で出力し、他の文字は含めないこと。
 {{
-    "title": "{title_max}文字以内の記事タイトル",
-    "body": "Markdownを使わない、空行をたっぷり入れたプレーンテキストの記事本文"
+    "titles": ["タイトル案1(クリック重視)", "タイトル案2(SEO重視)", "タイトル案3(おもしろ系)"],
+    "body": "Markdownを使わない、空行をたっぷり入れたプレーンテキストの記事本文",
+    "hashtags": ["#ハッシュタグ1", "#ハッシュタグ2", "#ハッシュタグ3", "#ハッシュタグ4", "#ハッシュタグ5"]
 }}
 """
+    return header + rules
 
 
-def generate_article(video_path: str, config: dict) -> dict:
+def generate_article(video_path: str, config: dict, user_instruction: str = "") -> dict:
     """動画をGemini AIに渡し、ブログ記事を生成する"""
     video_file = genai.upload_file(path=video_path)
 
@@ -126,7 +169,7 @@ def generate_article(video_path: str, config: dict) -> dict:
     if video_file.state.name == "FAILED":
         raise RuntimeError("動画の処理に失敗しました。")
 
-    system_instruction = build_system_prompt(config)
+    system_instruction = build_system_prompt(config, user_instruction)
     model_name = config.get("model", "gemini-2.0-flash")
     temperature = config.get("temperature", 0.8)
 
@@ -166,18 +209,28 @@ def normalize_youtube_url(url: str) -> str:
 def postprocess_body(body: str, url: str, config: dict) -> str:
     """本文にYouTube URL挿入と空行調整を行う"""
     shop_name = config.get("shop_name", "お店")
-
+    platform = config.get("platform", "BASE")
     base_friendly_url = normalize_youtube_url(url)
-    youtube_block = f"\n\n\n◆ 今回の元動画はこちら！\n{base_friendly_url}\n\n\n"
 
-    promo_markers = [f"◆◆ {shop_name}", "◆◆ お知らせ", "◆◆ 商品"]
-    inserted = False
-    for marker in promo_markers:
-        if marker in body:
-            body = body.replace(marker, youtube_block + marker, 1)
-            inserted = True
-            break
-    if not inserted:
-        body += youtube_block
+    if platform.lower() == "note":
+        # --- note モード ---
+        # AIが出力した {{YOUTUBE_URL}} プレースホルダーを実際のURLに置換
+        body = body.replace("{{YOUTUBE_URL}}", base_friendly_url)
+        body = body.replace("{YOUTUBE_URL}", base_friendly_url)
+        # もしプレースホルダーがなかった場合、末尾に追加
+        if base_friendly_url not in body:
+            body += f"\n\n---\n\n🎬 元動画はこちら！\n{base_friendly_url}\n"
+    else:
+        # --- BASE / その他 ---
+        youtube_block = f"\n\n\n◆ 今回の元動画はこちら！\n{base_friendly_url}\n\n\n"
+        promo_markers = [f"◆◆ {shop_name}", "◆◆ お知らせ", "◆◆ 商品"]
+        inserted = False
+        for marker in promo_markers:
+            if marker in body:
+                body = body.replace(marker, youtube_block + marker, 1)
+                inserted = True
+                break
+        if not inserted:
+            body += youtube_block
 
     return body
