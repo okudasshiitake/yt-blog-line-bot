@@ -74,33 +74,27 @@ def get_transcript(url: str) -> str:
     from youtube_transcript_api import YouTubeTranscriptApi
 
     video_id = extract_video_id(url)
+    ytt = YouTubeTranscriptApi()
 
-    # 日本語 → 英語 → 自動生成の順で試行
-    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
-
-    transcript = None
-    # 手動字幕を優先
-    for lang in ["ja", "en"]:
+    # 日本語 → 英語の順で試行
+    for langs in [["ja"], ["en"], ["ja", "en"]]:
         try:
-            transcript = transcript_list.find_transcript([lang])
-            break
+            transcript = ytt.fetch(video_id, languages=langs)
+            text_parts = [snippet.text for snippet in transcript]
+            return "\n".join(text_parts)
         except Exception:
             continue
 
-    # 自動生成字幕にフォールバック
-    if transcript is None:
-        try:
-            generated = transcript_list.find_generated_transcript(["ja", "en"])
-            transcript = generated
-        except Exception:
-            raise RuntimeError(
-                "この動画には字幕（自動生成含む）がありません。\n"
-                "字幕のある動画でお試しください。"
-            )
-
-    entries = transcript.fetch()
-    text_parts = [entry.text for entry in entries]
-    return "\n".join(text_parts)
+    # 言語指定なしで最終トライ
+    try:
+        transcript = ytt.fetch(video_id)
+        text_parts = [snippet.text for snippet in transcript]
+        return "\n".join(text_parts)
+    except Exception:
+        raise RuntimeError(
+            "この動画には字幕（自動生成含む）がありません。\n"
+            "字幕のある動画でお試しください。"
+        )
 
 
 def get_video_title(url: str) -> str:
