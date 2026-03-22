@@ -8,6 +8,7 @@ Render等にデプロイしてスマホだけで使える！
 """
 import os
 import re
+import json
 import time
 import threading
 from flask import Flask, request, abort
@@ -28,6 +29,7 @@ app = Flask(__name__)
 
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
+OWNER_LINE_ID = os.getenv("OWNER_LINE_ID", "")  # 設定すると本人だけが使える鍵
 
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
@@ -206,8 +208,25 @@ def handle_message(event):
     text = event.message.text.strip()
     user_id = event.source.user_id
 
+    # ログにユーザーIDを表示（初回確認用）
+    print(f"📩 メッセージ受信 | user_id: {user_id} | text: {text[:30]}")
+
     with ApiClient(configuration) as api_client:
         api = MessagingApi(api_client)
+
+        # --- オーナー制限チェック ---
+        if OWNER_LINE_ID and user_id != OWNER_LINE_ID:
+            api.reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[
+                        TextMessage(
+                            text="🔒 このBotは非公開です。"
+                        )
+                    ],
+                )
+            )
+            return
 
         if is_youtube_url(text):
             api.reply_message(
