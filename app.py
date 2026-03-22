@@ -29,7 +29,9 @@ app = Flask(__name__)
 
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
-OWNER_LINE_ID = os.getenv("OWNER_LINE_ID", "")  # 設定すると本人だけが使える鍵
+# 許可ユーザーリスト（カンマ区切りで複数人OK）
+_allowed_raw = os.getenv("ALLOWED_LINE_IDS", os.getenv("OWNER_LINE_ID", ""))
+ALLOWED_USER_IDS = [uid.strip() for uid in _allowed_raw.split(",") if uid.strip()]
 
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
@@ -214,8 +216,8 @@ def handle_message(event):
     with ApiClient(configuration) as api_client:
         api = MessagingApi(api_client)
 
-        # --- オーナー制限チェック ---
-        if OWNER_LINE_ID and user_id != OWNER_LINE_ID:
+        # --- 許可ユーザー制限チェック ---
+        if ALLOWED_USER_IDS and user_id not in ALLOWED_USER_IDS:
             api.reply_message(
                 ReplyMessageRequest(
                     reply_token=event.reply_token,
