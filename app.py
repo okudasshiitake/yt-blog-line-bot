@@ -20,7 +20,7 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from linebot.v3.exceptions import InvalidSignatureError
-from blog_engine import load_config, init_api, download_video, generate_article, postprocess_body
+from blog_engine import load_config, init_api, get_transcript, generate_article_from_transcript, postprocess_body
 
 USER_SETTINGS_FILE = "user_settings.json"
 
@@ -118,26 +118,25 @@ def push_text(line_api: MessagingApi, user_id: str, text: str):
 
 # ---------- 動画処理（バックグラウンドスレッド） ----------
 def process_video(user_id: str, url: str):
-    """動画ダウンロード → AI記事生成 → LINE送信"""
+    """字幕取得 → AI記事生成 → LINE送信"""
     if not _processing_lock.acquire(blocking=False):
         with ApiClient(configuration) as api_client:
             api = MessagingApi(api_client)
             push_text(api, user_id, "⏳ 現在別の動画を処理中です。少し待ってから再送してください。")
         return
 
-    temp_video = None
     try:
         with ApiClient(configuration) as api_client:
             api = MessagingApi(api_client)
 
-            # --- 1. ダウンロード ---
-            push_text(api, user_id, "📥 動画をダウンロード中...")
-            temp_video = download_video(url)
+            # --- 1. 字幕（トランスクリプト）取得 ---
+            push_text(api, user_id, "📝 動画の字幕を取得中...")
+            transcript = get_transcript(url)
 
             # --- 2. AI 記事生成 ---
-            push_text(api, user_id, "🤖 AIが記事を執筆中... (1〜2分かかります)")
+            push_text(api, user_id, "🤖 AIが記事を執筆中... (30秒〜1分かかります)")
             user_instruction = load_user_settings(user_id)
-            article = generate_article(temp_video, config, user_instruction)
+            article = generate_article_from_transcript(transcript, url, config, user_instruction)
 
             titles = article.get("titles", ["無題の記事"])
             if isinstance(titles, str):
@@ -177,13 +176,10 @@ def process_video(user_id: str, url: str):
         try:
             with ApiClient(configuration) as api_client:
                 api = MessagingApi(api_client)
-                push_text(api, user_id, f"❌ エラーが発生しました:\n{str(e)[:500]}")
+                push_text(api, user_id, f"❌ エラーが発生しました：\n{str(e)[:500]}")
         except Exception:
             pass
     finally:
-        # 一時ファイルを必ず削除（ディスク節約）
-        if temp_video and os.path.exists(temp_video):
-            os.remove(temp_video)
         _processing_lock.release()
 
 

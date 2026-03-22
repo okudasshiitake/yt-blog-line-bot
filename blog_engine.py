@@ -43,7 +43,7 @@ def init_api():
     genai.configure(api_key=api_key)
 
 
-# ========== 動画ダウンロード ==========
+# ========== 動画ダウンロード（PC版 / フォールバック用） ==========
 def download_video(url: str) -> str:
     """YouTubeから動画をダウンロードし、一時ファイルパスを返す"""
     tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
@@ -60,7 +60,97 @@ def download_video(url: str) -> str:
     return tmp.name
 
 
+# ========== YouTube字幕（トランスクリプト）取得 ==========
+def extract_video_id(url: str) -> str:
+    """URLからYouTubeの動画IDを抽出する"""
+    m = re.search(r"(?:v=|/shorts/|youtu\.be/)([^&?]+)", url)
+    if m:
+        return m.group(1)
+    raise ValueError(f"YouTube動画IDを抽出できませんでした: {url}")
+
+
+def get_transcript(url: str) -> str:
+    """YouTubeの字幕（トランスクリプト）をテキストとして取得する"""
+    from youtube_transcript_api import YouTubeTranscriptApi
+
+    video_id = extract_video_id(url)
+
+    # 日本語 → 英語 → 自動生成の順で試行
+    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+    transcript = None
+    # 手動字幕を優先
+    for lang in ["ja", "en"]:
+        try:
+            transcript = transcript_list.find_transcript([lang])
+            break
+        except Exception:
+            continue
+
+    # 自動生成字幕にフォールバック
+    if transcript is None:
+        try:
+            generated = transcript_list.find_generated_transcript(["ja", "en"])
+            transcript = generated
+        except Exception:
+            raise RuntimeError(
+                "この動画には字幕（自動生成含む）がありません。\n"
+                "字幕のある動画でお試しください。"
+            )
+
+    entries = transcript.fetch()
+    text_parts = [entry.text for entry in entries]
+    return "\n".join(text_parts)
+
+
+def get_video_title(url: str) -> str:
+    """yt-dlpを使ってYouTube動画のタイトルを取得する（ダウンロードなし）"""
+    try:
+        ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            return info.get("title", "")
+    except Exception:
+        return ""
+
+
 # ========== AI記事生成 ==========
+def generate_article_from_transcript(transcript: str, url: str, config: dict, user_instruction: str = "") -> dict:
+    """字幕テキストをGemini AIに渡し、ブログ記事を生成する"""
+    system_instruction = build_system_prompt(config, user_instruction)
+    model_name = config.get("model", "gemini-2.0-flash")
+    temperature = config.get("temperature", 0.8)
+
+    # 動画タイトルも取得できれば参考情報として渡す
+    video_title = get_video_title(url)
+    title_hint = f"\n動画タイトル: 「{video_title}」" if video_title else ""
+
+    model = genai.GenerativeModel(
+        model_name=model_name,
+        system_instruction=system_instruction,
+        generation_config={
+            "response_mime_type": "application/json",
+            "temperature": temperature,
+        },
+    )
+
+    prompt = (
+        f"以下はYouTube動画の字幕テキスト（話した内容の書き起こし）です。{title_hint}\n"
+        f"この内容を元に、指示通りのJSONフォーマットでブログ記事を出力してください。\n\n"
+        f"【字幕テキスト】\n{transcript[:15000]}"
+    )
+
+    response = model.generate_content(prompt)
+
+    try:
+        data = json.loads(response.text)
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
+        return data
+    except json.JSONDecodeError:
+        raise RuntimeError(f"AIの出力がJSON形式ではありませんでした: {response.text[:200]}")
+
+
 def build_system_prompt(config: dict, user_instruction: str = "") -> str:
     """設定からAIへのシステムプロンプトを組み立てる"""
     shop_name = config["shop_name"]
