@@ -28,7 +28,7 @@ def load_config() -> dict:
         "products": products,
         "not_selling": not_selling,
         "platform": os.getenv("PLATFORM", "BASE"),
-        "model": os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.0-flash"),
         "temperature": float(os.getenv("TEMPERATURE", "0.8")),
         "title_max_chars": int(os.getenv("TITLE_MAX_CHARS", "50")),
         "custom_rules": os.getenv("CUSTOM_RULES", ""),
