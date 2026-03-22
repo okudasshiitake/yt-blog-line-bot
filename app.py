@@ -20,11 +20,7 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from linebot.v3.exceptions import InvalidSignatureError
-from blog_engine import (
-    load_config, init_api, get_transcript,
-    generate_article_from_transcript, generate_article_from_audio,
-    download_audio, postprocess_body,
-)
+from blog_engine import load_config, init_api, generate_article_from_url, postprocess_body
 
 USER_SETTINGS_FILE = "user_settings.json"
 
@@ -135,23 +131,9 @@ def process_video(user_id: str, url: str):
             api = MessagingApi(api_client)
             user_instruction = load_user_settings(user_id)
 
-            # --- 1. まず字幕を試みる ---
-            transcript = None
-            try:
-                push_text(api, user_id, "📝 動画の字幕を取得中...")
-                transcript = get_transcript(url)
-            except Exception:
-                pass  # 字幕がない場合は音声フォールバックへ
-
-            # --- 2. AI 記事生成 ---
-            if transcript:
-                push_text(api, user_id, "🤖 AIが記事を執筆中... (30秒〜1分)")
-                article = generate_article_from_transcript(transcript, url, config, user_instruction)
-            else:
-                push_text(api, user_id, "🎤 字幕がないため、音声をダウンロード中...")
-                temp_audio = download_audio(url)
-                push_text(api, user_id, "🤖 AIが音声を解析して記事を執筆中... (1〜2分)")
-                article = generate_article_from_audio(temp_audio, url, config, user_instruction)
+            # --- YouTube URLを直接Geminiに渡す（ダウンロード不要！） ---
+            push_text(api, user_id, "🤖 AIが動画を解析して記事を執筆中... (30秒〜1分)")
+            article = generate_article_from_url(url, config, user_instruction)
 
             titles = article.get("titles", ["無題の記事"])
             if isinstance(titles, str):

@@ -1,4 +1,4 @@
-google-generativeai
+google-genai
 yt-dlp
 youtube-transcript-api
 flask
