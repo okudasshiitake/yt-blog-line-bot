@@ -20,7 +20,11 @@ from linebot.v3.messaging import (
 )
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from linebot.v3.exceptions import InvalidSignatureError
-from blog_engine import load_config, init_api, get_transcript, generate_article_from_transcript, postprocess_body
+from blog_engine import (
+    load_config, init_api, get_transcript,
+    generate_article_from_transcript, generate_article_from_audio,
+    download_audio, postprocess_body,
+)
 
 USER_SETTINGS_FILE = "user_settings.json"
 
@@ -125,18 +129,29 @@ def process_video(user_id: str, url: str):
             push_text(api, user_id, "⏳ 現在別の動画を処理中です。少し待ってから再送してください。")
         return
 
+    temp_audio = None
     try:
         with ApiClient(configuration) as api_client:
             api = MessagingApi(api_client)
+            user_instruction = load_user_settings(user_id)
 
-            # --- 1. 字幕（トランスクリプト）取得 ---
-            push_text(api, user_id, "📝 動画の字幕を取得中...")
-            transcript = get_transcript(url)
+            # --- 1. まず字幕を試みる ---
+            transcript = None
+            try:
+                push_text(api, user_id, "📝 動画の字幕を取得中...")
+                transcript = get_transcript(url)
+            except Exception:
+                pass  # 字幕がない場合は音声フォールバックへ
 
             # --- 2. AI 記事生成 ---
-            push_text(api, user_id, "🤖 AIが記事を執筆中... (30秒〜1分かかります)")
-            user_instruction = load_user_settings(user_id)
-            article = generate_article_from_transcript(transcript, url, config, user_instruction)
+            if transcript:
+                push_text(api, user_id, "🤖 AIが記事を執筆中... (30秒〜1分)")
+                article = generate_article_from_transcript(transcript, url, config, user_instruction)
+            else:
+                push_text(api, user_id, "🎤 字幕がないため、音声をダウンロード中...")
+                temp_audio = download_audio(url)
+                push_text(api, user_id, "🤖 AIが音声を解析して記事を執筆中... (1〜2分)")
+                article = generate_article_from_audio(temp_audio, url, config, user_instruction)
 
             titles = article.get("titles", ["無題の記事"])
             if isinstance(titles, str):
@@ -180,6 +195,8 @@ def process_video(user_id: str, url: str):
         except Exception:
             pass
     finally:
+        if temp_audio and os.path.exists(temp_audio):
+            os.remove(temp_audio)
         _processing_lock.release()
 
 

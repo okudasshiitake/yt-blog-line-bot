@@ -108,7 +108,66 @@ def get_video_title(url: str) -> str:
         return ""
 
 
+# ========== 音声ダウンロード（ショート動画の字幕なし用） ==========
+def download_audio(url: str) -> str:
+    """YouTubeから音声のみダウンロードし、一時ファイルパスを返す"""
+    tmp = tempfile.NamedTemporaryFile(suffix=".m4a", delete=False)
+    tmp.close()
+
+    ydl_opts = {
+        "format": "worstaudio[ext=m4a]/worstaudio",
+        "outtmpl": tmp.name,
+        "quiet": True,
+        "no_warnings": True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    return tmp.name
+
+
 # ========== AI記事生成 ==========
+def generate_article_from_audio(audio_path: str, url: str, config: dict, user_instruction: str = "") -> dict:
+    """音声ファイルをGemini AIに渡し、ブログ記事を生成する"""
+    audio_file = genai.upload_file(path=audio_path)
+
+    while audio_file.state.name == "PROCESSING":
+        time.sleep(3)
+        audio_file = genai.get_file(audio_file.name)
+
+    if audio_file.state.name == "FAILED":
+        raise RuntimeError("音声の処理に失敗しました。")
+
+    system_instruction = build_system_prompt(config, user_instruction)
+    model_name = config.get("model", "gemini-2.0-flash")
+    temperature = config.get("temperature", 0.8)
+
+    video_title = get_video_title(url)
+    title_hint = f"\n動画タイトル: 「{video_title}」" if video_title else ""
+
+    model = genai.GenerativeModel(
+        model_name=model_name,
+        system_instruction=system_instruction,
+        generation_config={
+            "response_mime_type": "application/json",
+            "temperature": temperature,
+        },
+    )
+
+    response = model.generate_content(
+        [audio_file, f"この音声はYouTube動画の内容です。{title_hint}\nこの内容を元に、指示通りのJSONフォーマットでブログ記事を出力してください。"]
+    )
+
+    try:
+        data = json.loads(response.text)
+        genai.delete_file(audio_file.name)
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
+        return data
+    except json.JSONDecodeError:
+        genai.delete_file(audio_file.name)
+        raise RuntimeError(f"AIの出力がJSON形式ではありませんでした: {response.text[:200]}")
+
+
 def generate_article_from_transcript(transcript: str, url: str, config: dict, user_instruction: str = "") -> dict:
     """字幕テキストをGemini AIに渡し、ブログ記事を生成する"""
     system_instruction = build_system_prompt(config, user_instruction)
