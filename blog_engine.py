@@ -83,7 +83,7 @@ def generate_article_from_url(url: str, config: dict, user_instruction: str = ""
                         mime_type="video/*",
                     ),
                     types.Part.from_text(
-                        "この動画を元に、システム指示通りのJSONフォーマットでブログ記事を出力してください。"
+                        text="この動画を元に、システム指示通りのJSONフォーマットでブログ記事を出力してください。"
                     ),
                 ]
             )
